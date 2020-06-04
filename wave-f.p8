@@ -14,8 +14,10 @@ local INPUT_SHAPES = {
   {24,0,7,7},
   {32,0,7,7},
   {40,0,7,7},
+  {48,0,7,7},
+  {56,0,7,7},
 }
-INPUT_SHAPE = INPUT_SHAPES[6]
+INPUT_SHAPE_INDEX = 1
 
 
 -- constants
@@ -34,17 +36,7 @@ RUNTHROUGH_COUNT = 1
 function _init()
   printd("\n\n\n\n\n\n\n\n\n\n")
 
-  input_shape = INPUT_SHAPE
-  output_shape = OUTPUT_SHAPE
-
-  local patterns = collect_patterns()
-  local model_inputs = parse_patterns(patterns)
-  parsed_compatibilities = model_inputs[1]
-  parsed_weights = model_inputs[2]
-
-  compatibility_oracle = make_compatibility_oracle(parsed_compatibilities)
-  model = make_model(parsed_weights, compatibility_oracle)
-
+  initialize_model()
 end
 
 function _update()
@@ -55,8 +47,16 @@ function _update()
   model:update()
 
   if btnp(4) then
-    model:reset()
+    initialize_model()
     RUNTHROUGH_COUNT += 1
+  elseif btnp(0) then
+    INPUT_SHAPE_INDEX -= 1
+    INPUT_SHAPE_INDEX = max(INPUT_SHAPE_INDEX, 1)
+    initialize_model()
+  elseif btnp(1) then
+    INPUT_SHAPE_INDEX += 1
+    INPUT_SHAPE_INDEX = min(INPUT_SHAPE_INDEX, #INPUT_SHAPES)
+    initialize_model()
   end
 end
 
@@ -64,6 +64,18 @@ function _draw()
   cls()
 
   model:draw()
+end
+
+function initialize_model()
+  input_shape = INPUT_SHAPES[INPUT_SHAPE_INDEX]
+
+  local patterns = collect_patterns()
+  local model_inputs = parse_patterns(patterns)
+  parsed_compatibilities = model_inputs[1]
+  parsed_weights = model_inputs[2]
+
+  compatibility_oracle = make_compatibility_oracle(parsed_compatibilities)
+  model = make_model(parsed_weights, compatibility_oracle)
 end
 
 function make_compatibility_oracle(compatibilities)
@@ -94,7 +106,6 @@ function make_model(weights, compatibility_oracle)
 
   m.iterate = function(self)
     self.iteration += 1
-    printd("Iteration: " .. self.iteration)
 
     -- 1. Find the coordinates of minimum entropy
     local p = self:min_entropy_point()
@@ -106,18 +117,13 @@ function make_model(weights, compatibility_oracle)
     self:propagate(p)
   end
 
-  m.reset = function(self)
-    self.wavefunction:initialize_coefficients()
-    self.iteration = 0
-  end
-
   m.min_entropy_point = function(self)
     -- Returns the point of the location whose wavefunction has the lowest entropy
     local min_entropy
     local min_entropy_p
 
-    for y = 1, output_shape[4] do
-      for x = 1, output_shape[3] do
+    for y = 1, OUTPUT_SHAPE[4] do
+      for x = 1, OUTPUT_SHAPE[3] do
         if #self.wavefunction:get_true_tiles({x,y}) ~= 1 then
           local entropy = self.wavefunction:entropy_f({x, y})
 
@@ -154,7 +160,7 @@ function make_model(weights, compatibility_oracle)
       local cur_possible_tiles = self.wavefunction:get_true_tiles(cur_p)
 
       -- Iterate through each location immediately adjacent to the current location.
-      for d in all(valid_dirs(cur_p, output_shape)) do
+      for d in all(valid_dirs(cur_p, OUTPUT_SHAPE)) do
         local other_p = {cur_p[1] + d[1], cur_p[2] + d[2]}
 
         -- Iterate through each possible tile in the adjacent location's wavefunction.
@@ -184,16 +190,16 @@ function make_model(weights, compatibility_oracle)
 
   m.draw = function(self)
     -- draw output shape
-    rectfill(0, 0, output_shape[3] + 1, output_shape[4] + 1, 7)
-    for y = 1, output_shape[4] do
-      for x = 1, output_shape[3] do
+    rectfill(0, 0, OUTPUT_SHAPE[3] + 1, OUTPUT_SHAPE[4] + 1, 7)
+    for y = 1, OUTPUT_SHAPE[4] do
+      for x = 1, OUTPUT_SHAPE[3] do
         local colors = self.wavefunction:get_true_tiles({x, y})
         local choice = colors[flr(rnd(#colors)) + 1]
         if #colors == 0 then choice = 4 end
         pset(x, y, choice)
       end
     end
-    print("output texture", 0, output_shape[4] + 8, 7)
+    print("output texture", 0, OUTPUT_SHAPE[4] + 8, 7)
 
     -- draw input shape
     rectfill(127, 0, 127 - input_shape[3] - 2, input_shape[4] + 2, 7)
@@ -201,9 +207,15 @@ function make_model(weights, compatibility_oracle)
     print("input texture", 76, input_shape[4] + 8, 7)
 
     -- draw information
-    print("wavefunction collapse", 0, 100)
-    print("iteration: " .. RUNTHROUGH_COUNT, 0, 110)
-    print("frame: " .. self.iteration, 0, 120)
+    local status = "in-progress"
+    local status_color = 2
+    if self.wavefunction:is_fully_collapsed() then 
+      status = "complete!" 
+      status_color = 3
+    end
+    print("wave-f collapse: " .. status, 0, 100, status_color)
+    print("texture: " .. INPUT_SHAPE_INDEX, 0, 110, 7)
+    print("frame: " .. self.iteration, 0, 120, 7)
   end
 
   return m
@@ -215,14 +227,15 @@ function make_wavefunction(weights)
 
   local f = {}
   f.weights = weights
+  f._is_fully_collapsed = false
 
   f.initialize_coefficients = function(self)
     -- create 128x128 array of boolean `coefficients`  
     -- {{{color1: true, color2: false, color3: true, color4: false... }, { }, {} ...}}
     local coefficients = {}
-    for y=1, output_shape[4] do
+    for y=1, OUTPUT_SHAPE[4] do
       local coefficients_row = {}
-      for x=1, output_shape[3] do
+      for x=1, OUTPUT_SHAPE[3] do
         add(coefficients_row, {})
         for tile, _ in pairs(weights) do
           coefficients_row[x][tile] = true
@@ -267,18 +280,21 @@ function make_wavefunction(weights)
 
   f.is_fully_collapsed = function(self)
     -- Returns true if every element in Wavefunction is fully collapsed, and false otherwise
-    for y, row in pairs(self.coefficients) do
-      for x, coefficients in pairs(row) do
-        local count = 0
-        for _, coefficient in pairs(coefficients) do
-          if coefficient then count += 1 end
-          if count > 1 then
-            return false
+    if not self._is_fully_collapsed then
+      for y, row in pairs(self.coefficients) do
+        for x, coefficients in pairs(row) do
+          local count = 0
+          for _, coefficient in pairs(coefficients) do
+            if coefficient then count += 1 end
+            if count > 1 then
+              return false
+            end
           end
         end
       end
     end
 
+    self._is_fully_collapsed = true
     return true
   end
 
@@ -503,11 +519,11 @@ end
 
 
 __gfx__
-cc333999333333333333333333333bbb222222221111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999333333333333333333333bbb999999a91111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c39999993333333333ff3333333333bbaaeaaaaa1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999333333333fccf33333333333eeeeeeae1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-cc33399933ff3333fccccf3ffffff333cceccccc1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c39999993fccf3f3ccccccfccccccf33dddddddd1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999fccccfcfccccccccccccccf3888888889999999c00000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999ccccccccccccccccccccccf388888888cccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000
+2222222233333333888acccc33333bbbeee99eee22222222333333332222222a0000000000000000000000000000000000000000000000000000000000000000
+2222222233333333888acccc33333bbbe99aa99e22222222333333339999999a0000000000000000000000000000000000000000000000000000000000000000
+2222222233ff3333888acccc333333bbe9a88a9e1212121233333333aaeaaaaa0000000000000000000000000000000000000000000000000000000000000000
+222222223fccf333888acaaaf33333339a8888a91111111133333333eeeeeaaa0000000000000000000000000000000000000000000000000000000000000000
+88888888fccccf3faaaca888cffff3339a8888a91111111133ff3333cceccccc0000000000000000000000000000000000000000000000000000000000000000
+88888888ccccccfccccca888cccccf33e9a88a9e818181813fccf3f3ddeddddd0000000000000000000000000000000000000000000000000000000000000000
+88888888cccccccccccca888ccccccf3e99aa99e88888888fccccfcf888888880000000000000000000000000000000000000000000000000000000000000000
+88888888cccccccccccca888ccccccf3eee99eee88888888cccccccc888888880000000000000000000000000000000000000000000000000000000000000000
