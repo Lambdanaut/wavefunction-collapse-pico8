@@ -6,18 +6,17 @@ __lua__
 -- wave function collapse generator in pico-8
 -- more information: https://github.com/mxgmn/wavefunctioncollapse
 
+OUTPUT_SHAPE = {0, 0, 24, 24}
+local INPUT_SHAPES = {
+  {0,0,7,7},
+  {8,0,7,7},
+  {16,0,7,7},
+  {24,0,7,7},
+  {32,0,7,7},
+  {40,0,7,7},
+}
+INPUT_SHAPE = INPUT_SHAPES[6]
 
--- Notes
--- Validated:
--- * valid_dirs() when used in parse_input()
--- * weight parsing
--- * parsed_compatibilities
--- * coefficients creation
--- * pop function
--- To Validate:
--- * min_entropy_point
--- * collapse
--- * propagate
 
 -- constants
 UP = {0, -1}
@@ -35,15 +34,8 @@ RUNTHROUGH_COUNT = 1
 function _init()
   printd("\n\n\n\n\n\n\n\n\n\n")
 
-  output_shape = {0, 0, 32, 32}
-  local input_shapes = {
-    {0,0,7,7},
-    {8,0,7,7},
-    {16,0,7,7},
-  }
-  input_shape = input_shapes[2]
-
-
+  input_shape = INPUT_SHAPE
+  output_shape = OUTPUT_SHAPE
 
   local patterns = collect_patterns()
   local model_inputs = parse_patterns(patterns)
@@ -106,7 +98,6 @@ function make_model(weights, compatibility_oracle)
 
     -- 1. Find the coordinates of minimum entropy
     local p = self:min_entropy_point()
-    printd(p)
 
     -- 2. Collapse the wavefunction at these co-ordinates
     self.wavefunction:collapse(p)
@@ -374,7 +365,6 @@ function parse_patterns(patterns)
     end
   end
 
-  printd(compatibilities)
   return {compatibilities, weights}
 end
 
@@ -392,11 +382,37 @@ function pattern_from_sample()
   return pattern
 end
 
+function reflect_y_pattern(pattern)
+  local new_pattern = {}
+  for y=#pattern, 1, -1 do
+    add(new_pattern, pattern[y])
+  end
+  return new_pattern
+end
+
+function reflect_x_pattern(pattern)
+  local new_pattern = {}
+  for y=1, #pattern do
+    local new_row = {}
+    for x=#pattern[y], 1, -1 do
+      add(new_row, pattern[y][x])
+    end
+    add(new_pattern, new_row)
+  end
+  return new_pattern
+end
+
 function collect_patterns()
   local patterns = {}
   local p1 = pattern_from_sample(input_shape)
+  local p2 = reflect_x_pattern(p1)
+  local p3 = reflect_y_pattern(p1)
+  local p4 = reflect_x_pattern(p3)
 
   add(patterns, p1)
+  add(patterns, p2)
+  add(patterns, p3)
+  add(patterns, p4)
   return patterns
 end
 
@@ -487,11 +503,11 @@ end
 
 
 __gfx__
-cc333999333333333333333333333333333333330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999333333333333333333333333333333330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c399999933ff333333ff333333ff333333ff33330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c39999993fccf3333fccf3333fccf3333fccf3330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-cc333999fccccf3ffccccf3ffccccf3ffccccf3f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999ccccccfcccccccfcccccccfcccccccfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999cccccccccccccccccccccccccccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-c3999999cccccccccccccccccccccccccccccccc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+cc333999333333333333333333333bbb222222221111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c3999999333333333333333333333bbb999999a91111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c39999993333333333ff3333333333bbaaeaaaaa1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c3999999333333333fccf33333333333eeeeeeae1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+cc33399933ff3333fccccf3ffffff333cceccccc1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c39999993fccf3f3ccccccfccccccf33dddddddd1111119c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c3999999fccccfcfccccccccccccccf3888888889999999c00000000000000000000000000000000000000000000000000000000000000000000000000000000
+c3999999ccccccccccccccccccccccf388888888cccccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000
