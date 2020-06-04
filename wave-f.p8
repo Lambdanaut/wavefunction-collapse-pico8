@@ -35,17 +35,20 @@ RUNTHROUGH_COUNT = 1
 function _init()
   printd("\n\n\n\n\n\n\n\n\n\n")
 
-  output_shape = {0, 0, 52, 52}
+  output_shape = {0, 0, 32, 32}
   local input_shapes = {
     {0,0,7,7},
     {8,0,7,7},
     {16,0,7,7},
   }
-  input_shape = input_shapes[1]
+  input_shape = input_shapes[2]
 
-  local input = parse_input(input_shape)
-  parsed_compatibilities = input[1]
-  parsed_weights = input[2]
+
+
+  local patterns = collect_patterns()
+  local model_inputs = parse_patterns(patterns)
+  parsed_compatibilities = model_inputs[1]
+  parsed_weights = model_inputs[2]
 
   compatibility_oracle = make_compatibility_oracle(parsed_compatibilities)
   model = make_model(parsed_weights, compatibility_oracle)
@@ -195,6 +198,7 @@ function make_model(weights, compatibility_oracle)
       for x = 1, output_shape[3] do
         local colors = self.wavefunction:get_true_tiles({x, y})
         local choice = colors[flr(rnd(#colors)) + 1]
+        if #colors == 0 then choice = 4 end
         pset(x, y, choice)
       end
     end
@@ -340,60 +344,63 @@ function valid_dirs(p, rect, offset)
   return dirs
 end
 
-function parse_input(sprite_rect)
+function parse_patterns(patterns)
   -- returns 2 tables: {compatibilities, weights}
 
   local compatibilities = {}  -- set of all compatibilites of form: {from_tile, to_tile, direction}
   local weights = {}  -- counts of each color used: {tile: count}
 
-  for y=sprite_rect[2], sprite_rect[2] + sprite_rect[4] do
-    for x=sprite_rect[1], sprite_rect[1] + sprite_rect[3] do
-      cur_tile = sget(x, y)
+  -- take off the x/y components of the input_shape for the valid_dirs function call
+  local adjusted_input_shape = {0, 0, input_shape[3], input_shape[4]}
 
-      if not key_in(cur_tile, weights) then
-        weights[cur_tile] = 0
-      end
-      weights[cur_tile] += 1
+  for pattern in all(patterns) do
+    for y=1, input_shape[4] do
+      for x=1, input_shape[3] do
+        local cur_tile = pattern[y][x]
 
-      for d in all(valid_dirs({x, y}, sprite_rect, 1)) do
-        local other_tile = sget(x+d[1], y+d[2])
-        local compatibility = {cur_tile, other_tile, d}
-        if not val_in(compatibility, compatibilities) then
-          add(compatibilities, compatibility)
+        if not key_in(cur_tile, weights) then
+          weights[cur_tile] = 0
+        end
+        weights[cur_tile] += 1
+
+        for d in all(valid_dirs({x, y}, adjusted_input_shape)) do
+          local other_tile = pattern[y+d[2]][x+d[1]]
+          local compatibility = {cur_tile, other_tile, d}
+          if not val_in(compatibility, compatibilities) then
+            add(compatibilities, compatibility)
+          end
         end
       end
-
     end
   end
 
+  printd(compatibilities)
   return {compatibilities, weights}
 end
 
-function pattern_from_sample(sprite_rect)
-  -- get 2d matrix of input colors
+function pattern_from_sample()
+  -- get 2d matrix of input colors from spritesheet
   local pattern = {}
-  for y=sprite_rect[2], sprite_rect[2] + sprite_rect[4] do
+  local list_y = 1
+  for y=input_shape[2], input_shape[2] + input_shape[4] do
     add(pattern, {})
-    for x=sprite_rect[1], sprite_rect[1] + sprite_rect[3] do
-      add(pattern, sget(x, y))
+    for x=input_shape[1], input_shape[1] + input_shape[3] do
+      add(pattern[list_y], sget(x, y))
     end
+    list_y += 1
   end
+  return pattern
 end
 
+function collect_patterns()
+  local patterns = {}
+  local p1 = pattern_from_sample(input_shape)
+
+  add(patterns, p1)
+  return patterns
+end
 
 -- helper functions 
-function keys(table)
-  -- returns keys of a table
-  local keyset={}
-  local n=0
-
-  for k, v in pairs(table) do
-    n=n+1
-    keyset[n]=k
-  end
-  return keyset
-end
-
 function key_in(key, table)
   for k, _ in pairs(table) do
     if k == key then return true end
